@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AHAP Haptic Editor</title>
+<style>
+:root{--bg:#f6f6f3;--panel:#fff;--ink:#1b1b1a;--mute:#6d6d67;--line:#deded8;--acc:#2f6fed;--accink:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--panel:#1f1f1d;--ink:#ecece8;--mute:#9b9b94;--line:#33332f;--acc:#5b92ff;--accink:#0b1220}}
+:root[data-theme="dark"]{--bg:#151514;--panel:#1f1f1d;--ink:#ecece8;--mute:#9b9b94;--line:#33332f;--acc:#5b92ff;--accink:#0b1220}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:var(--mute);margin:0 0 14px;font-size:13px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+button,select,input[type=number]{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+button.on{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+button.go{background:var(--acc);color:var(--accink);border-color:var(--acc);font-weight:600}
+input[type=number]{width:70px;cursor:text}
+label{color:var(--mute);font-size:13px;display:flex;align-items:center;gap:6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
+canvas{width:100%;height:340px;display:block;touch-action:none;cursor:crosshair}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.row{display:grid;grid-template-columns:90px 1fr 52px;gap:8px;align-items:center;margin:6px 0}
+.row span:last-child{text-align:right;color:var(--mute);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc)}
+textarea{width:100%;height:230px;font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical}
+.hint{color:var(--mute);font-size:12.5px;margin:8px 2px 0}
+.h{font-weight:600;margin:0 0 4px}
+.legend{display:inline-block;width:70px;height:8px;border-radius:4px;background:linear-gradient(90deg,hsl(215,80%,55%),hsl(25,80%,55%));vertical-align:middle;margin:0 4px}
+#msg{color:var(--mute);font-size:12.5px}
+</style></head><body><main>
+<h1>AHAP Haptic Editor</h1>
+<p class="sub">Draw Core Haptics patterns, then export them as <code>.ahap</code> JSON. Height = intensity, colour = sharpness (soft<span class="legend"></span>sharp).</p>
+
+<div class="bar">
+  <button id="tTap" class="on">Tap</button>
+  <button id="tBuzz">Buzz</button>
+  <button id="play" class="go">▶ Play</button>
+  <label><input type="checkbox" id="snd" checked> sound preview</label>
+  <label>Length <input type="number" id="len" min="0.3" max="30" step="0.1" value="1.5"> s</label>
+  <select id="pre"><option value="">Presets…</option><option>Tick</option><option>Success</option><option>Error</option><option>Heartbeat</option></select>
+  <button id="clr">Clear</button>
+</div>
+
+<div class="card"><canvas id="cv"></canvas></div>
+<p class="hint"><b>Tap</b>: click to add a tap. <b>Buzz</b>: drag to draw a continuous event. Drag anything to move it; drag a buzz’s right edge to resize; drag its dots to shape the intensity curve. Double-click a buzz to add a curve point (double-click a point to remove). Delete key removes the selection.</p>
+
+<div class="grid">
+  <div class="card">
+    <p class="h">Selected event</p>
+    <div class="row"><span>Time</span><input type="range" id="eT" min="0" max="1" step="0.01"><span id="vT"></span></div>
+    <div class="row"><span>Intensity</span><input type="range" id="eI" min="0" max="1" step="0.01"><span id="vI"></span></div>
+    <div class="row"><span>Sharpness</span><input type="range" id="eS" min="0" max="1" step="0.01"><span id="vS"></span></div>
+    <div class="row"><span>Duration</span><input type="range" id="eD" min="0.02" max="10" step="0.01"><span id="vD"></span></div>
+    <p class="hint" id="selHint">Select an event on the graph to fine-tune it. New events use the last sharpness you set.</p>
+  </div>
+  <div class="card">
+    <p class="h">.ahap output</p>
+    <textarea id="json" spellcheck="false"></textarea>
+    <div class="bar" style="margin:8px 0 0">
+      <button id="copy" class="go">Copy JSON</button>
+      <button id="apply">Load from text</button>
+      <label>Open file <input type="file" id="file" accept=".ahap,.json,application/json"></label>
+      <span id="msg"></span>
+    </div>
+    <p class="hint">Paste the copied JSON into a file named <code>something.ahap</code>. Note: in Core Haptics, an intensity curve applies to the whole pattern, so avoid overlapping buzzes that use different curves.</p>
+  </div>
+</div>
+<div class="card" style="margin-top:12px">
+  <p class="h">Audio → haptics (envelope follower)</p>
+  <div class="bar">
+    <label>Audio file <input type="file" id="afile" accept="audio/*"></label>
+    <button id="arm" disabled>Remove audio</button>
+    <label><input type="checkbox" id="aPlay" checked> play audio with pattern</label>
+    <span id="ainfo" style="color:var(--mute);font-size:12.5px"></span>
+  </div>
+  <div class="grid" style="margin-top:0">
+    <div>
+      <div class="row"><span>Mode</span><select id="aMode" style="width:100%"><option value="cont">Continuous envelope</option><option value="taps">Taps on beats</option><option value="both">Both</option></select><span></span></div>
+      <div class="row"><span>Gain</span><input type="range" id="aG" min="0.5" max="4" step="0.1" value="1.5"><span id="aGv"></span></div>
+      <div class="row"><span>Threshold</span><input type="range" id="aTh" min="0" max="0.5" step="0.01" value="0.05"><span id="aThv"></span></div>
+    </div>
+    <div>
+      <div class="row"><span>Release</span><input type="range" id="aRel" min="10" max="400" step="5" value="80"><span id="aRelv"></span></div>
+      <div class="row"><span>Detail</span><input type="range" id="aPts" min="8" max="120" step="1" value="40"><span id="aPtsv"></span></div>
+      <div class="row"><span>Sharpness</span><input type="range" id="aS" min="0" max="1" step="0.01" value="0.5"><span id="aSv"></span></div>
+    </div>
+  </div>
+  <div class="bar" style="margin:6px 0 0">
+    <button id="cvt" class="go" disabled>Convert to haptics</button>
+    <label><input type="checkbox" id="aAuto" checked> sharpness from brightness (overrides slider)</label>
+  </div>
+  <p class="hint">The audio waveform appears behind the graph for alignment. Converting replaces the current pattern, which starts at 0 s to match the start of the audio. Release controls how slowly the envelope falls, Detail is the maximum number of curve points, and Threshold gates out quiet noise. Files longer than 30 s are cut to their first 30 s.</p>
+</div>
+</main>
+<script>
+const $=s=>document.querySelector(s), clamp=(v,a,b)=>Math.min(b,Math.max(a,v)), snap=v=>Math.round(v*100)/100, r3=v=>Math.round(v*1000)/1000;
+let T=1.5, evs=[], sel=null, tool='tap', nid=1, drag=null, defS=0.5, playStart=null, ac=null, W=0, H=0;
+const cv=$('#cv'), cx=cv.getContext('2d'), P={l:40,r:14,t:14,b:26};
+const gw=()=>W-P.l-P.r, gh=()=>H-P.t-P.b;
+const X=t=>P.l+t/T*gw(), Y=v=>P.t+(1-v)*gh();
+const tX=x=>clamp((x-P.l)/gw()*T,0,T), vY=y=>clamp(1-(y-P.t)/gh(),0,1);
+const col=(s,a=1)=>`hsla(${215-s*190},80%,55%,${a})`;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const mkT=(t,i,s)=>({id:nid++,type:'t',t,i,s,d:0,env:[]});
+const mkC=(t,d,i,s,env)=>({id:nid++,type:'c',t,i,s,d,env:env||[{t:0,v:1},{t:1,v:1}]});
+const getSel=()=>evs.find(e=>e.id===sel);
+function envAt(e,p){const a=e.env;if(p<=a[0].t)return a[0].v;for(let k=1;k<a.length;k++){if(p<=a[k].t){const u=(p-a[k-1].t)/((a[k].t-a[k-1].t)||1);return a[k-1].v+u*(a[k].v-a[k-1].v)}}return a[a.length-1].v}
+
+function resize(){const r=cv.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;cx.setTransform(d,0,0,d,0,0);W=r.width;H=r.height;draw()}
+function draw(){
+  cx.clearRect(0,0,W,H);const line=css('--line'),mute=css('--mute'),ink=css('--ink');
+  cx.font='11px sans-serif';cx.textAlign='right';cx.textBaseline='middle';
+  for(let v=0;v<=1.001;v+=0.25){cx.strokeStyle=line;cx.beginPath();cx.moveTo(P.l,Y(v));cx.lineTo(W-P.r,Y(v));cx.stroke();cx.fillStyle=mute;cx.fillText(v.toFixed(2),P.l-6,Y(v))}
+  const st=T<=1?0.1:T<=3?0.25:T<=6?0.5:1;cx.textAlign='center';cx.textBaseline='top';
+  for(let t=0;t<=T+1e-6;t+=st){cx.strokeStyle=line;cx.beginPath();cx.moveTo(X(t),P.t);cx.lineTo(X(t),P.t+gh());cx.stroke();cx.fillStyle=mute;cx.fillText(t.toFixed(2).replace(/0$/,''),X(t),P.t+gh()+6)}
+  drawWave();
+  for(const e of evs){
+    const on=e.id===sel;
+    if(e.type==='t'){
+      cx.strokeStyle=col(e.s);cx.lineWidth=on?4:2.5;cx.beginPath();cx.moveTo(X(e.t),Y(0));cx.lineTo(X(e.t),Y(e.i));cx.stroke();
+      cx.fillStyle=col(e.s);cx.beginPath();cx.arc(X(e.t),Y(e.i),on?7:5,0,7);cx.fill();
+    }else{
+      cx.beginPath();cx.moveTo(X(e.t),Y(0));
+      for(const p of e.env)cx.lineTo(X(e.t+p.t*e.d),Y(e.i*p.v));
+      cx.lineTo(X(e.t+e.d),Y(0));cx.closePath();cx.fillStyle=col(e.s,on?0.45:0.3);cx.fill();
+      cx.strokeStyle=col(e.s);cx.lineWidth=on?3:2;cx.stroke();
+      for(const p of e.env){cx.fillStyle=css('--panel');cx.beginPath();cx.arc(X(e.t+p.t*e.d),Y(e.i*p.v),5,0,7);cx.fill();cx.stroke()}
+    }
+  }
+  if(playStart!==null){const x=X(clamp((performance.now()-playStart)/1000,0,T));cx.strokeStyle=ink;cx.lineWidth=1.5;cx.beginPath();cx.moveTo(x,P.t);cx.lineTo(x,P.t+gh());cx.stroke()}
+}
+
+function hit(x,y){
+  for(let n=evs.length-1;n>=0;n--){const e=evs[n];
+    if(e.type==='c'){
+      for(let k=0;k<e.env.length;k++){const p=e.env[k];if(Math.hypot(x-X(e.t+p.t*e.d),y-Y(e.i*p.v))<9)return{e,kind:'pt',k}}
+      const x0=X(e.t),x1=X(e.t+e.d);
+      if(Math.abs(x-x1)<7&&y<=Y(0)&&y>=Y(e.i)-8)return{e,kind:'edge'};
+      if(x>=x0&&x<=x1&&y>=Y(e.i*envAt(e,(x-x0)/(x1-x0||1)))&&y<=Y(0))return{e,kind:'body'};
+    }else if(Math.abs(x-X(e.t))<8&&y>=Y(e.i)-8&&y<=Y(0)+4)return{e,kind:'tr'};
+  }return null}
+const pos=ev=>{const r=cv.getBoundingClientRect();return[ev.clientX-r.left,ev.clientY-r.top]};
+
+cv.onpointerdown=ev=>{
+  cv.setPointerCapture(ev.pointerId);const[x,y]=pos(ev),h=hit(x,y);
+  if(h){sel=h.e.id;drag={...h,x0:x,y0:y,t0:h.e.t,i0:h.e.i}}
+  else if(tool==='tap'){const e=mkT(snap(tX(x)),snap(Math.max(0.05,vY(y))),defS);evs.push(e);sel=e.id;drag={e,kind:'tr',x0:x,y0:y,t0:e.t,i0:e.i}}
+  else{const e=mkC(snap(tX(x)),0.05,snap(Math.max(0.05,vY(y))),defS);evs.push(e);sel=e.id;drag={e,kind:'new',x0:x,y0:y}}
+  refresh()};
+cv.onpointermove=ev=>{
+  if(!drag)return;const[x,y]=pos(ev),e=drag.e,dt=(x-drag.x0)/gw()*T,di=-(y-drag.y0)/gh();
+  if(drag.kind==='tr'||drag.kind==='body'){e.t=snap(clamp(drag.t0+dt,0,T-e.d));e.i=snap(clamp(drag.i0+di,0.05,1))}
+  else if(drag.kind==='edge'||drag.kind==='new')e.d=snap(clamp(tX(x)-e.t,0.02,Math.min(30,T-e.t)));
+  else if(drag.kind==='pt'){const a=e.env,k=drag.k,p=a[k];p.v=r3(clamp(vY(y)/e.i,0,1));
+    if(k>0&&k<a.length-1)p.t=r3(clamp((tX(x)-e.t)/e.d,a[k-1].t+0.01,a[k+1].t-0.01))}
+  refresh()};
+cv.onpointerup=()=>{if(drag&&drag.kind==='new'&&drag.e.d<0.06)drag.e.d=Math.min(0.3,T-drag.e.t);drag=null;refresh()};
+cv.ondblclick=ev=>{const[x,y]=pos(ev),h=hit(x,y);if(!h||h.e.type!=='c')return;const e=h.e;
+  if(h.kind==='pt'){if(h.k>0&&h.k<e.env.length-1)e.env.splice(h.k,1)}
+  else{const p=r3(clamp((tX(x)-e.t)/e.d,0.01,0.99));e.env.push({t:p,v:r3(clamp(vY(y)/e.i,0,1))});e.env.sort((a,b)=>a.t-b.t)}
+  refresh()};
+addEventListener('keydown',ev=>{if((ev.key==='Delete'||ev.key==='Backspace')&&sel&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){ev.preventDefault();evs=evs.filter(e=>e.id!==sel);sel=null;refresh()}});
+
+// inspector
+const sl={T:$('#eT'),I:$('#eI'),S:$('#eS'),D:$('#eD')};
+function inspector(){const e=getSel();for(const k in sl)sl[k].disabled=!e||(k==='D'&&e.type==='t');
+  $('#selHint').style.display=e?'none':'block';
+  if(!e){for(const k in sl)$('#v'+k).textContent='';return}
+  sl.T.max=T;sl.D.max=Math.min(30,Math.max(T,0.1));
+  sl.T.value=e.t;sl.I.value=e.i;sl.S.value=e.s;sl.D.value=e.d||0.02;
+  $('#vT').textContent=e.t.toFixed(2)+'s';$('#vI').textContent=e.i.toFixed(2);$('#vS').textContent=e.s.toFixed(2);$('#vD').textContent=e.type==='c'?e.d.toFixed(2)+'s':'–'}
+for(const k in sl)sl[k].oninput=()=>{const e=getSel();if(!e)return;const v=+sl[k].value;
+  if(k==='T')e.t=clamp(v,0,Math.max(0,T-e.d));if(k==='I')e.i=Math.max(0.05,v);if(k==='S'){e.s=v;defS=v}if(k==='D')e.d=clamp(v,0.02,T-e.t);refresh()};
+
+// export / import
+function build(){
+  const pat=[];[...evs].sort((a,b)=>a.t-b.t).forEach(e=>{
+    const ep=[{ParameterID:'HapticIntensity',ParameterValue:r3(e.i)},{ParameterID:'HapticSharpness',ParameterValue:r3(e.s)}];
+    const ob={Time:r3(e.t),EventType:e.type==='t'?'HapticTransient':'HapticContinuous',EventParameters:ep};
+    if(e.type==='c')ob.EventDuration=r3(e.d);pat.push({Event:ob});
+    if(e.type==='c'&&e.env.some(p=>p.v!==1))for(let a=0;a<e.env.length-1;a+=15){const ch=e.env.slice(a,a+16),b=ch[0].t;pat.push({ParameterCurve:{ParameterID:'HapticIntensityControl',Time:r3(e.t+b*e.d),ParameterCurveControlPoints:ch.map(p=>({Time:r3((p.t-b)*e.d),ParameterValue:r3(p.v)}))}})}});
+  return{Version:1.0,Metadata:{Project:'AHAP Editor pattern',Created:'AHAP Haptic Editor'},Pattern:pat}}
+function parse(txt){
+  const o=JSON.parse(txt),out=[];let end=0;const pats=o.Pattern||[];
+  for(const it of pats){if(!it.Event)continue;const E=it.Event;if(E.EventType!=='HapticTransient'&&E.EventType!=='HapticContinuous')continue;
+    const g=id=>{const p=(E.EventParameters||[]).find(q=>q.ParameterID===id);return p?+p.ParameterValue:0.5};
+    const c=E.EventType==='HapticContinuous',t=+E.Time||0,d=c?Math.min(30,+E.EventDuration||0.1):0;
+    out.push(c?mkC(t,d,clamp(g('HapticIntensity'),0.05,1),g('HapticSharpness')):mkT(t,clamp(g('HapticIntensity'),0.05,1),g('HapticSharpness')));end=Math.max(end,t+d)}
+  for(const it of pats){const C=it.ParameterCurve;if(!C||C.ParameterID!=='HapticIntensityControl')continue;
+    const e=out.find(q=>q.type==='c'&&C.Time>=q.t-0.001&&C.Time<=q.t+q.d+0.001);if(!e)continue;
+    const pts=C.ParameterCurveControlPoints.map(p=>({t:clamp((C.Time+p.Time-e.t)/e.d,0,1),v:clamp(+p.ParameterValue,0,1)})).sort((a,b)=>a.t-b.t);
+    if(pts.length>=2)e._c=(e._c||[]).concat(pts)}
+  out.forEach(e=>{if(!e._c)return;const m=[];e._c.sort((a,b)=>a.t-b.t).forEach(p=>{if(!m.length||p.t-m[m.length-1].t>1e-6)m.push({t:Math.round(p.t*1e5)/1e5,v:r3(p.v)})});if(m.length>=2){m[0].t=0;m[m.length-1].t=1;e.env=m}delete e._c});
+  evs=out;T=Math.max(0.5,Math.ceil((end+0.1)*10)/10);$('#len').value=T;sel=null;nid=nid;refresh(true)}
+function say(m){$('#msg').textContent=m;setTimeout(()=>{if($('#msg').textContent===m)$('#msg').textContent=''},2500)}
+function refresh(skipJson){draw();inspector();if(!skipJson||true)$('#json').value=JSON.stringify(build(),null,2)}
+
+$('#copy').onclick=async()=>{const t=$('#json').value;try{await navigator.clipboard.writeText(t);say('Copied')}catch(e){$('#json').select();try{document.execCommand('copy');say('Copied')}catch(_){say('Select the text and copy manually')}}};
+$('#apply').onclick=()=>{try{parse($('#json').value);say('Loaded')}catch(e){say('Invalid AHAP JSON')}};
+$('#file').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{parse(r.result);say('Loaded '+f.name)}catch(_){say('Invalid AHAP file')}};r.readAsText(f)};
+
+// toolbar
+$('#tTap').onclick=()=>{tool='tap';$('#tTap').classList.add('on');$('#tBuzz').classList.remove('on')};
+$('#tBuzz').onclick=()=>{tool='buzz';$('#tBuzz').classList.add('on');$('#tTap').classList.remove('on')};
+$('#len').onchange=()=>{T=clamp(+$('#len').value||1.5,0.3,30);evs.forEach(e=>{e.t=Math.min(e.t,Math.max(0,T-e.d));e.d=Math.min(e.d,T-e.t)});refresh()};
+$('#clr').onclick=()=>{evs=[];sel=null;refresh()};
+$('#pre').onchange=()=>{const n=$('#pre').value;$('#pre').value='';const q={
+  Tick:[0.3,[mkT(0.05,0.6,0.8)]],
+  Success:[0.8,[mkT(0,0.9,0.6),mkC(0.12,0.4,0.6,0.3,[{t:0,v:0.3},{t:1,v:1}])]],
+  Error:[1,[mkT(0,1,0.9),mkT(0.15,1,0.9),mkC(0.3,0.5,0.7,0.2,[{t:0,v:1},{t:1,v:0.2}])]],
+  Heartbeat:[1.2,[mkT(0,0.9,0.3),mkT(0.15,0.6,0.3),mkT(0.8,0.9,0.3),mkT(0.95,0.6,0.3)]]}[n];
+  if(!q)return;T=q[0];evs=q[1];sel=null;$('#len').value=T;refresh()};
+
+// preview playback (approximate: sound stands in for the Taptic Engine)
+let src=null;function stop(){if(src){try{src.stop()}catch(_){}src=null}playStart=null;$('#play').textContent='▶ Play'}
+$('#play').onclick=()=>{
+  if(playStart!==null){stop();draw();return}
+  if($('#snd').checked){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();ac.resume();const n=ac.currentTime+0.05;
+    for(const e of evs){const o=ac.createOscillator(),g=ac.createGain(),s=n+e.t;o.connect(g);g.connect(ac.destination);
+      if(e.type==='t'){o.type='sine';o.frequency.value=90+e.s*260;g.gain.setValueAtTime(e.i*0.7,s);g.gain.exponentialRampToValueAtTime(0.001,s+0.05);o.start(s);o.stop(s+0.06)}
+      else{o.type='triangle';o.frequency.value=70+e.s*140;g.gain.setValueAtTime(0.0001,s);
+        e.env.forEach(p=>g.gain.linearRampToValueAtTime(Math.max(0.0001,e.i*p.v*0.45),s+Math.max(0.005,p.t*e.d)));
+        g.gain.linearRampToValueAtTime(0.0001,s+e.d+0.02);o.start(s);o.stop(s+e.d+0.03)}}}catch(_){}}
+  if(audio&&$('#aPlay').checked){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();ac.resume();const s=ac.createBufferSource();s.buffer=audio.buf;s.connect(ac.destination);s.start(ac.currentTime+0.05);src=s}catch(_){}}
+  playStart=performance.now();$('#play').textContent='■ Stop';
+  (function f(){if(playStart===null)return;if((performance.now()-playStart)/1000>T+0.1){stop();draw();return}draw();requestAnimationFrame(f)})()};
+
+// ---- audio -> haptics (envelope follower)
+let audio=null;
+const AF={aG:v=>(+v).toFixed(1)+'×',aTh:v=>(+v).toFixed(2),aRel:v=>v+' ms',aPts:v=>v,aS:v=>(+v).toFixed(2)};
+for(const id in AF){const el=$('#'+id),u=()=>{$('#'+id+'v').textContent=AF[id](el.value)};el.oninput=u;u()}
+const ainfo=m=>{$('#ainfo').textContent=m};
+$('#afile').onchange=async e=>{const f=e.target.files[0];if(!f)return;
+  try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();
+    const buf=await ac.decodeAudioData(await f.arrayBuffer()),B=1200,step=buf.length/B,pk=new Float32Array(B),chs=[];
+    for(let c=0;c<buf.numberOfChannels;c++)chs.push(buf.getChannelData(c));
+    for(let b=0;b<B;b++){let m=0;for(let i=Math.floor(b*step),j=Math.floor((b+1)*step);i<j;i++)for(let c=0;c<chs.length;c++){const a=Math.abs(chs[c][i]);if(a>m)m=a}pk[b]=m}
+    audio={buf,pk,max:Math.max(...pk)||1};$('#snd').checked=false;$('#arm').disabled=false;$('#cvt').disabled=false;
+    ainfo(f.name+' · '+buf.duration.toFixed(2)+' s'+(buf.duration>30?' (first 30 s used)':''));draw();
+  }catch(err){ainfo('Could not decode that audio file')}};
+$('#arm').onclick=()=>{audio=null;$('#arm').disabled=true;$('#cvt').disabled=true;ainfo('');$('#afile').value='';draw()};
+function drawWave(){if(!audio)return;const w=gw(),B=audio.pk.length,dur=audio.buf.duration,mid=P.t+gh()/2;
+  cx.save();cx.globalAlpha=0.22;cx.fillStyle=css('--mute');
+  for(let px=0;px<w;px++){const t=px/w*T;if(t>dur)break;const a=audio.pk[Math.min(B-1,Math.floor(t/dur*B))]/audio.max;cx.fillRect(P.l+px,mid-a*gh()/2,1,Math.max(1,a*gh()))}
+  cx.restore()}
+function simplify(xs,ys,tol){const n=xs.length,keep=new Uint8Array(n);keep[0]=keep[n-1]=1;const st=[[0,n-1]];
+  while(st.length){const[a,b]=st.pop();let md=0,mi=-1;for(let i=a+1;i<b;i++){const u=(xs[i]-xs[a])/(xs[b]-xs[a]||1),d=Math.abs(ys[i]-(ys[a]+u*(ys[b]-ys[a])));if(d>md){md=d;mi=i}}
+    if(mi>=0&&md>tol){keep[mi]=1;st.push([a,mi],[mi,b])}}
+  const o=[];keep.forEach((k,i)=>{if(k)o.push(i)});return o}
+$('#cvt').onclick=()=>{if(!audio)return;
+  const buf=audio.buf,sr=buf.sampleRate,nc=buf.numberOfChannels,Tn=Math.min(buf.duration,30),hop=Math.round(sr*0.005),hs=hop/sr,N=Math.floor(Tn*sr/hop);
+  if(N<8){ainfo('Audio is too short');return}
+  const g=+$('#aG').value,th=+$('#aTh').value,rel=+$('#aRel').value,maxP=+$('#aPts').value,mode=$('#aMode').value,auto=$('#aAuto').checked,fixS=+$('#aS').value;
+  const chs=[];for(let c=0;c<nc;c++)chs.push(buf.getChannelData(c));
+  const rms=new Float32Array(N),zc=new Float32Array(N);
+  for(let h=0;h<N;h++){let s=0,z=0,prev=0;for(let i=h*hop;i<(h+1)*hop;i++){let x=0;for(let c=0;c<nc;c++)x+=chs[c][i];x/=nc;s+=x*x;if(i>h*hop&&(x>=0)!==(prev>=0))z++;prev=x}rms[h]=Math.sqrt(s/hop);zc[h]=z}
+  const sorted=Array.from(rms).sort((a,b)=>a-b),ref=sorted[Math.floor(0.995*(N-1))]||sorted[N-1]||1;
+  const raw=Array.from(rms,v=>clamp(v/ref*g,0,1)),cr=Math.exp(-5/rel),y=new Array(N);let prev=0;
+  for(let h=0;h<N;h++){const x=raw[h];prev=x>prev?prev+(x-prev)*0.6:x+(prev-x)*cr;y[h]=prev<th?0:prev}
+  const bright=(a,b)=>{let z=0,c=0;for(let h=Math.max(0,a);h<=Math.min(N-1,b);h++){z+=zc[h];c++}const f=c?z/c/(2*hs):0;return clamp(Math.log2(Math.max(f,150)/150)/Math.log2(6000/150),0,1)};
+  const out=[];let nTaps=0,nPts=0;
+  if(mode!=='taps'){
+    let f=-1,l=-1;for(let h=0;h<N;h++)if(y[h]>0){if(f<0)f=h;l=h}
+    if(f>=0){f=Math.max(0,f-1);l=Math.min(N-1,l+1);
+      const xs=[],ys=[];for(let h=f;h<=l;h++){xs.push(h*hs);ys.push(y[h])}
+      let lo=0,hi=0.5;for(let k=0;k<14;k++){const m=(lo+hi)/2;if(simplify(xs,ys,m).length>maxP)lo=m;else hi=m}
+      const idx=simplify(xs,ys,hi),span=xs[xs.length-1]-xs[0]||hs;
+      const env=idx.map(i=>({t:Math.round((xs[i]-xs[0])/span*1e5)/1e5,v:r3(ys[i])}));
+      let sw=0,sz=0;for(let h=f;h<=l;h++){sw+=y[h];sz+=y[h]*bright(h,h)}
+      out.push(mkC(r3(xs[0]),Math.max(0.02,r3(span)),mode==='both'?0.5:1,auto?r3(sw?sz/sw:0.5):fixS,env));nPts=env.length}}
+  if(mode!=='cont'){let last=-99;
+    for(let h=2;h<N-2;h++){const x=raw[h];if(x<Math.max(th,0.1))continue;
+      let top=true;for(let k=-6;k<=6;k++){const j=h+k;if(j>=0&&j<N&&raw[j]>x){top=false;break}}if(!top)continue;
+      let a=0,c=0;for(let k=-30;k<-6;k++){const j=h+k;if(j>=0){a+=raw[j];c++}}a=c?a/c:0;
+      if(x<a*1.4+0.05||h-last<12)continue;last=h;nTaps++;
+      out.push(mkT(r3(h*hs),r3(clamp(x,0.2,1)),auto?r3(bright(h-3,h+3)):fixS))}}
+  if(!out.length){ainfo('Nothing above the threshold. Try lowering it or raising the gain.');return}
+  evs=out;T=Math.max(0.5,Math.ceil(Tn*10)/10);$('#len').value=T;sel=null;refresh();
+  ainfo(audio.buf.duration.toFixed(2)+' s · '+(nPts?nPts+' curve points':'')+(nPts&&nTaps?', ':'')+(nTaps?nTaps+' taps':''))};
+addEventListener('resize',resize);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',draw);
+$('#pre').value='';
+evs=[mkT(0,0.9,0.6),mkC(0.12,0.4,0.6,0.3,[{t:0,v:0.3},{t:1,v:1}])];T=0.8;$('#len').value=T;
+resize();refresh();
+</script></body></html>
